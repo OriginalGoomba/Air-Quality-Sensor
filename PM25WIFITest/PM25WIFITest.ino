@@ -9,8 +9,8 @@
 
 Adafruit_PM25AQI aqi = Adafruit_PM25AQI();
 
-const char* ssid = "Notthewifussy";
-const char* password = "420mtndew69";
+const char* ssid = "";
+const char* password = "";
 const char* mqtt_server = "10.0.0.94";
 
 WiFiClient espClient;
