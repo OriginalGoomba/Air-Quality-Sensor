@@ -12,6 +12,7 @@ import digitalio
 import adafruit_sgp30
 from adafruit_pm25.i2c import PM25_I2C
 from adafruit_lc709203f import LC709203F
+import microcontroller
 
 # Reset the count if we haven't slept yet. This is used to cycle count on battery.
 if not alarm.wake_alarm:
@@ -27,6 +28,7 @@ i2c = board.STEMMA_I2C()
 reset_pin = None
 
 pm25 = PM25_I2C(i2c, reset_pin)
+aqdata = {}
 sgp30 = adafruit_sgp30.Adafruit_SGP30(i2c)
 bme680 = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x76)
 temperature_offset = -5
@@ -136,8 +138,13 @@ mqtt_client.subscribe(mqtt_topic)
 try:
     time.sleep(10)
     aqdata = pm25.read()
+    print(type(aqdata))
 except RuntimeError:
-    print("Unable to read from sensor, retrying...")
+    print("Unable to read from sensor, retrying in 30 seconds...")
+    time.sleep(30)
+except NameError:
+    print("Unable to read from sensor, retrying in 30 seconds...")
+    time.sleep(30)
 
 
 print()
