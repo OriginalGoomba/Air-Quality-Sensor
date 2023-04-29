@@ -7,18 +7,16 @@ import adafruit_minimqtt.adafruit_minimqtt as MQTT
 import adafruit_bme680
 import time
 import board
-import busio
 import digitalio
 import adafruit_sgp30
 from adafruit_pm25.i2c import PM25_I2C
 from adafruit_lc709203f import LC709203F
-import microcontroller
 
 # Reset the count if we haven't slept yet. This is used to cycle count on battery.
 if not alarm.wake_alarm:
     # Use byte 5 in sleep memory. This is just an example.
     alarm.sleep_memory[5] = 0
-    
+
 print("Waking from sleep. Cycles: ", alarm.sleep_memory[5])
 time.sleep(5)
 
@@ -123,30 +121,21 @@ mqtt_client.on_unsubscribe = unsubscribe
 mqtt_client.on_publish = publish
 mqtt_client.on_message = message
 
-
-
-
 print("Attempting to connect to %s" % mqtt_client.broker)
 mqtt_client.connect()
 
 print("Subscribing to %s" % mqtt_topic)
 mqtt_client.subscribe(mqtt_topic)
 
-
-
-
+# Attempting to read PM25 sensor data, typically needs ~10 seconds after wake
 try:
     time.sleep(10)
     aqdata = pm25.read()
     print(type(aqdata))
 except RuntimeError:
-    print("Unable to read from sensor, retrying in 30 seconds...")
-    time.sleep(30)
-except NameError:
-    print("Unable to read from sensor, retrying in 30 seconds...")
-    time.sleep(30)
-
-
+    print("Cannot read PM2.5, trying again later...")
+    
+# debug print out of PM2.5 sensor data
 print()
 print("Concentration Units (standard)")
 print("---------------------------------------")
@@ -169,32 +158,53 @@ print("Particles > 5.0um / 0.1L air:", aqdata["particles 50um"])
 print("Particles > 10 um / 0.1L air:", aqdata["particles 100um"])
 print("---------------------------------------")
 
+# debug redout of SGP30 data, this also needs ~10 seconds to come up to temperature
 print("eCO2 = %d ppm \t TVOC = %d ppb" % (sgp30.eCO2, sgp30.TVOC))
 
+# debug readout of BME680
 print("\nTemperature: %0.1f C" % (bme680.temperature + temperature_offset))
 print("Gas: %d ohm" % bme680.gas)
 print("Humidity: %0.1f %%" % bme680.relative_humidity)
 print("Pressure: %0.3f hPa" % bme680.pressure)
 print("Altitude = %0.2f meters" % bme680.altitude)
 # each element in the list (i.e. "temperature") needs tro correspond to msg.payload.temperature in NODE-RED)
-bme680data = {"temperature":bme680.temperature + temperature_offset,
-"humidity":bme680.relative_humidity, "pressure":bme680.pressure, "altitude":bme680.altitude}
-data_out = json.dumps(bme680data)
 
-aqmdata = json.dumps({"temperature":bme680.temperature + temperature_offset, "humidity":bme680.relative_humidity, "pressure":bme680.pressure, "altitude":bme680.altitude, "gas":bme680.gas, "pm10":aqdata["pm10 env"], "pm25":aqdata["pm25 env"], "pm100":aqdata["pm100 env"], "p03um":aqdata["particles 03um"], "p05um":aqdata["particles 05um"], "p10um":aqdata["particles 10um"], "p25um":aqdata["particles 25um"], "p50um":aqdata["particles 50um"], "p100um":aqdata["particles 100um"], "eCO2":sgp30.eCO2, "TVOC":sgp30.TVOC, "voltage":vsensor.cell_voltage, "battery_percentage":vsensor.cell_percent, "cycles":alarm.sleep_memory[5]})
+# Assembling JSON expression with all sensor data to send over MQTT
+aqmdata = json.dumps({
+    "temperature": bme680.temperature + temperature_offset, 
+    "humidity": bme680.relative_humidity, 
+    "pressure": bme680.pressure, 
+    "altitude": bme680.altitude, 
+    "gas": bme680.gas, 
+    "pm10": aqdata["pm10 env"], 
+    "pm25": aqdata["pm25 env"], 
+    "pm100": aqdata["pm100 env"], 
+    "p03um": aqdata["particles 03um"], 
+    "p05um": aqdata["particles 05um"], 
+    "p10um": aqdata["particles 10um"], 
+    "p25um": aqdata["particles 25um"], 
+    "p50um": aqdata["particles 50um"], 
+    "p100um": aqdata["particles 100um"], 
+    "eCO2": sgp30.eCO2, "TVOC": sgp30.TVOC, 
+    "voltage": vsensor.cell_voltage, 
+    "battery_percentage": vsensor.cell_percent, 
+    "cycles": alarm.sleep_memory[5]
+})
+
+# debug printout of sensor data
 print(aqmdata)
+
+# publishing to MQTT on raspberry pi
 print("Publishing to %s" % mqtt_topic)
 mqtt_client.publish(mqtt_topic, aqmdata)
-# time.sleep(10)
 
-# print("Unsubscribing from %s" % mqtt_topic)
-# mqtt_client.unsubscribe(mqtt_topic)
-
+# disconnect before sleep
 print("Disconnecting from %s" % mqtt_client.broker)
 mqtt_client.disconnect()
 
 print("Going to sleep")
 
+# turning off I2C power before sleep to turn off sensors and save power
 i2c_power = digitalio.DigitalInOut(board.I2C_POWER)
 i2c_power.switch_to_input()
 
