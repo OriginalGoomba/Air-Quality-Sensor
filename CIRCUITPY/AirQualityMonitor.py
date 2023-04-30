@@ -11,6 +11,7 @@ import digitalio
 import adafruit_sgp30
 from adafruit_pm25.i2c import PM25_I2C
 from adafruit_lc709203f import LC709203F
+import microcontroller
 
 # Reset the count if we haven't slept yet. This is used to cycle count on battery.
 if not alarm.wake_alarm:
@@ -121,8 +122,12 @@ mqtt_client.on_unsubscribe = unsubscribe
 mqtt_client.on_publish = publish
 mqtt_client.on_message = message
 
-print("Attempting to connect to %s" % mqtt_client.broker)
-mqtt_client.connect()
+try:
+    print("Attempting to connect to %s" % mqtt_client.broker)
+    mqtt_client.connect()
+except:
+    print("!!!!! microcontroller resetting !!!!!")
+    microcontroller.reset()
 
 print("Subscribing to %s" % mqtt_topic)
 mqtt_client.subscribe(mqtt_topic)
@@ -134,6 +139,8 @@ try:
     print(type(aqdata))
 except RuntimeError:
     print("Cannot read PM2.5, trying again later...")
+    print("!!!!! microcontroller resetting !!!!!")
+    microcontroller.reset()
     
 # debug print out of PM2.5 sensor data
 print()
@@ -209,7 +216,7 @@ i2c_power = digitalio.DigitalInOut(board.I2C_POWER)
 i2c_power.switch_to_input()
 
 # Create a an alarm that will trigger 20 seconds from now.
-time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + 5)
+time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + 2)
 # Exit the program, and then deep sleep until the alarm wakes us.
 alarm.exit_and_deep_sleep_until_alarms(time_alarm)
 # Does not return, so we never get here.
