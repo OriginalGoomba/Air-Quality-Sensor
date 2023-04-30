@@ -12,14 +12,19 @@ import adafruit_sgp30
 from adafruit_pm25.i2c import PM25_I2C
 from adafruit_lc709203f import LC709203F
 import microcontroller
+import watchdog
+
+w = microcontroller.watchdog
+w.timeout = 60
+w.mode = watchdog.WatchDogMode.RESET
 
 # Reset the count if we haven't slept yet. This is used to cycle count on battery.
 if not alarm.wake_alarm:
     # Use byte 5 in sleep memory. This is just an example.
     alarm.sleep_memory[5] = 0
-
+    
 print("Waking from sleep. Cycles: ", alarm.sleep_memory[5])
-time.sleep(5)
+time.sleep(3)
 
 alarm.sleep_memory[5] = (alarm.sleep_memory[5] + 1) % 256
 i2c = board.STEMMA_I2C()
@@ -128,9 +133,11 @@ try:
 except:
     print("!!!!! microcontroller resetting !!!!!")
     microcontroller.reset()
-
-print("Subscribing to %s" % mqtt_topic)
-mqtt_client.subscribe(mqtt_topic)
+try:
+    print("Subscribing to %s" % mqtt_topic)
+    mqtt_client.subscribe(mqtt_topic)
+except MQTT.MMQTTException:
+    microcontroller.reset()
 
 # Attempting to read PM25 sensor data, typically needs ~10 seconds after wake
 try:
@@ -141,7 +148,7 @@ except RuntimeError:
     print("Cannot read PM2.5, trying again later...")
     print("!!!!! microcontroller resetting !!!!!")
     microcontroller.reset()
-    
+
 # debug print out of PM2.5 sensor data
 print()
 print("Concentration Units (standard)")
@@ -178,23 +185,23 @@ print("Altitude = %0.2f meters" % bme680.altitude)
 
 # Assembling JSON expression with all sensor data to send over MQTT
 aqmdata = json.dumps({
-    "temperature": bme680.temperature + temperature_offset, 
-    "humidity": bme680.relative_humidity, 
-    "pressure": bme680.pressure, 
-    "altitude": bme680.altitude, 
-    "gas": bme680.gas, 
-    "pm10": aqdata["pm10 env"], 
-    "pm25": aqdata["pm25 env"], 
-    "pm100": aqdata["pm100 env"], 
-    "p03um": aqdata["particles 03um"], 
-    "p05um": aqdata["particles 05um"], 
-    "p10um": aqdata["particles 10um"], 
-    "p25um": aqdata["particles 25um"], 
-    "p50um": aqdata["particles 50um"], 
-    "p100um": aqdata["particles 100um"], 
-    "eCO2": sgp30.eCO2, "TVOC": sgp30.TVOC, 
-    "voltage": vsensor.cell_voltage, 
-    "battery_percentage": vsensor.cell_percent, 
+    "temperature": bme680.temperature + temperature_offset,
+    "humidity": bme680.relative_humidity,
+    "pressure": bme680.pressure,
+    "altitude": bme680.altitude,
+    "gas": bme680.gas,
+    "pm10": aqdata["pm10 env"],
+    "pm25": aqdata["pm25 env"],
+    "pm100": aqdata["pm100 env"],
+    "p03um": aqdata["particles 03um"],
+    "p05um": aqdata["particles 05um"],
+    "p10um": aqdata["particles 10um"],
+    "p25um": aqdata["particles 25um"],
+    "p50um": aqdata["particles 50um"],
+    "p100um": aqdata["particles 100um"],
+    "eCO2": sgp30.eCO2, "TVOC": sgp30.TVOC,
+    "voltage": vsensor.cell_voltage,
+    "battery_percentage": vsensor.cell_percent,
     "cycles": alarm.sleep_memory[5]
 })
 
@@ -215,8 +222,8 @@ print("Going to sleep")
 i2c_power = digitalio.DigitalInOut(board.I2C_POWER)
 i2c_power.switch_to_input()
 
-# Create a an alarm that will trigger 20 seconds from now.
-time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + 2)
+# Create a an alarm that will trigger 5 Minutes from now.
+time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + 3)
 # Exit the program, and then deep sleep until the alarm wakes us.
 alarm.exit_and_deep_sleep_until_alarms(time_alarm)
 # Does not return, so we never get here.
