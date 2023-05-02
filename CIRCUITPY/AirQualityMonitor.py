@@ -37,7 +37,7 @@ pm25 = PM25_I2C(i2c, reset_pin)
 aqdata = {}
 sgp30 = adafruit_sgp30.Adafruit_SGP30(i2c)
 bme680 = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x76)
-temperature_offset = -1.54
+temperature_offset = -3.21
 bme680.sea_level_pressure = 1013.25
 sgp30.set_iaq_baseline(39644, 41725)
 sgp30.set_iaq_relative_humidity(celsius=bme680.temperature + temperature_offset, relative_humidity=bme680.relative_humidity)
@@ -141,7 +141,7 @@ try:
 except MQTT.MMQTTException:
     microcontroller.reset()
 
-t_end = time.monotonic() + 90
+t_end = time.monotonic() + 60 * 5
 while time.monotonic() < t_end:
     w.feed()
     time.sleep(5)
@@ -178,7 +178,7 @@ while time.monotonic() < t_end:
         "cycles": alarm.sleep_memory[5]
     })
     
-    if time.monotonic() > t_end - 60:
+    if time.monotonic() > t_end - (60 * 4):
         # publishing to MQTT on raspberry pi
         print("Publishing to %s" % mqtt_topic)
         mqtt_client.publish(mqtt_topic, aqmdata)
