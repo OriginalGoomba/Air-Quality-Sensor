@@ -13,6 +13,7 @@ from adafruit_pm25.i2c import PM25_I2C
 from adafruit_lc709203f import LC709203F
 import microcontroller
 import watchdog
+import time
 
 w = microcontroller.watchdog
 w.timeout = 60
@@ -22,9 +23,10 @@ w.mode = watchdog.WatchDogMode.RESET
 if not alarm.wake_alarm:
     # Use byte 5 in sleep memory. This is just an example.
     alarm.sleep_memory[5] = 0
-    
+
 print("Waking from sleep. Cycles: ", alarm.sleep_memory[5])
-time.sleep(3)
+# print("Warming up sensors for logging")
+# time.sleep(10)
 
 alarm.sleep_memory[5] = (alarm.sleep_memory[5] + 1) % 256
 i2c = board.STEMMA_I2C()
@@ -35,10 +37,10 @@ pm25 = PM25_I2C(i2c, reset_pin)
 aqdata = {}
 sgp30 = adafruit_sgp30.Adafruit_SGP30(i2c)
 bme680 = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x76)
-temperature_offset = -5
+temperature_offset = -1.54
 bme680.sea_level_pressure = 1013.25
-sgp30.set_iaq_baseline(0x8973, 0x8AAE)
-sgp30.set_iaq_relative_humidity(celsius=22.1, relative_humidity=44)
+sgp30.set_iaq_baseline(39644, 41725)
+sgp30.set_iaq_relative_humidity(celsius=bme680.temperature + temperature_offset, relative_humidity=bme680.relative_humidity)
 vsensor = LC709203F(i2c)
 
 print("Battery: %0.3f Volts / %0.1f %%" % (vsensor.cell_voltage, vsensor.cell_percent))
@@ -139,78 +141,50 @@ try:
 except MQTT.MMQTTException:
     microcontroller.reset()
 
-# Attempting to read PM25 sensor data, typically needs ~10 seconds after wake
-try:
-    time.sleep(10)
-    aqdata = pm25.read()
-    print(type(aqdata))
-except RuntimeError:
-    print("Cannot read PM2.5, trying again later...")
-    print("!!!!! microcontroller resetting !!!!!")
-    microcontroller.reset()
+t_end = time.monotonic() + 90
+while time.monotonic() < t_end:
+    w.feed()
+    time.sleep(5)
+    
+    try:
+        aqdata = pm25.read()
+    except RuntimeError:
+        print("Cannot read PM2.5, trying again later...")
 
-# debug print out of PM2.5 sensor data
-print()
-print("Concentration Units (standard)")
-print("---------------------------------------")
-print(
-    "PM 1.0: %d\tPM2.5: %d\tPM10: %d"
-    % (aqdata["pm10 standard"], aqdata["pm25 standard"], aqdata["pm100 standard"])
-)
-print("Concentration Units (environmental)")
-print("---------------------------------------")
-print(
-    "PM 1.0: %d\tPM2.5: %d\tPM10: %d"
-    % (aqdata["pm10 env"], aqdata["pm25 env"], aqdata["pm100 env"])
-)
-print("---------------------------------------")
-print("Particles > 0.3um / 0.1L air:", aqdata["particles 03um"])
-print("Particles > 0.5um / 0.1L air:", aqdata["particles 05um"])
-print("Particles > 1.0um / 0.1L air:", aqdata["particles 10um"])
-print("Particles > 2.5um / 0.1L air:", aqdata["particles 25um"])
-print("Particles > 5.0um / 0.1L air:", aqdata["particles 50um"])
-print("Particles > 10 um / 0.1L air:", aqdata["particles 100um"])
-print("---------------------------------------")
-
-# debug redout of SGP30 data, this also needs ~10 seconds to come up to temperature
-print("eCO2 = %d ppm \t TVOC = %d ppb" % (sgp30.eCO2, sgp30.TVOC))
-
-# debug readout of BME680
-print("\nTemperature: %0.1f C" % (bme680.temperature + temperature_offset))
-print("Gas: %d ohm" % bme680.gas)
-print("Humidity: %0.1f %%" % bme680.relative_humidity)
-print("Pressure: %0.3f hPa" % bme680.pressure)
-print("Altitude = %0.2f meters" % bme680.altitude)
-# each element in the list (i.e. "temperature") needs tro correspond to msg.payload.temperature in NODE-RED)
-
-# Assembling JSON expression with all sensor data to send over MQTT
-aqmdata = json.dumps({
-    "temperature": bme680.temperature + temperature_offset,
-    "humidity": bme680.relative_humidity,
-    "pressure": bme680.pressure,
-    "altitude": bme680.altitude,
-    "gas": bme680.gas,
-    "pm10": aqdata["pm10 env"],
-    "pm25": aqdata["pm25 env"],
-    "pm100": aqdata["pm100 env"],
-    "p03um": aqdata["particles 03um"],
-    "p05um": aqdata["particles 05um"],
-    "p10um": aqdata["particles 10um"],
-    "p25um": aqdata["particles 25um"],
-    "p50um": aqdata["particles 50um"],
-    "p100um": aqdata["particles 100um"],
-    "eCO2": sgp30.eCO2, "TVOC": sgp30.TVOC,
-    "voltage": vsensor.cell_voltage,
-    "battery_percentage": vsensor.cell_percent,
-    "cycles": alarm.sleep_memory[5]
-})
-
-# debug printout of sensor data
-print(aqmdata)
-
-# publishing to MQTT on raspberry pi
-print("Publishing to %s" % mqtt_topic)
-mqtt_client.publish(mqtt_topic, aqmdata)
+    sgp30.set_iaq_relative_humidity(
+    celsius=bme680.temperature + temperature_offset, 
+    relative_humidity=bme680.relative_humidity
+    )
+    # each element in the list (i.e. "temperature") needs to correspond to msg.payload.temperature in NODE-RED)
+    # Assembling JSON expression with all sensor data to send over MQTT
+    aqmdata = json.dumps({
+        "temperature": bme680.temperature + temperature_offset,
+        "humidity": bme680.relative_humidity,
+        "pressure": bme680.pressure,
+        "altitude": bme680.altitude,
+        "gas": bme680.gas,
+        "pm10": aqdata["pm10 env"],
+        "pm25": aqdata["pm25 env"],
+        "pm100": aqdata["pm100 env"],
+        "p03um": aqdata["particles 03um"],
+        "p05um": aqdata["particles 05um"],
+        "p10um": aqdata["particles 10um"],
+        "p25um": aqdata["particles 25um"],
+        "p50um": aqdata["particles 50um"],
+        "p100um": aqdata["particles 100um"],
+        "eCO2": sgp30.eCO2, "TVOC": sgp30.TVOC,
+        "voltage": vsensor.cell_voltage,
+        "battery_percentage": vsensor.cell_percent,
+        "cycles": alarm.sleep_memory[5]
+    })
+    
+    if time.monotonic() > t_end - 60:
+        # publishing to MQTT on raspberry pi
+        print("Publishing to %s" % mqtt_topic)
+        mqtt_client.publish(mqtt_topic, aqmdata)
+    else:
+        print("Warming up sensors...")
+    
 
 # disconnect before sleep
 print("Disconnecting from %s" % mqtt_client.broker)
@@ -223,7 +197,7 @@ i2c_power = digitalio.DigitalInOut(board.I2C_POWER)
 i2c_power.switch_to_input()
 
 # Create a an alarm that will trigger 5 Minutes from now.
-time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + 3)
+time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + (60 * 2))
 # Exit the program, and then deep sleep until the alarm wakes us.
 alarm.exit_and_deep_sleep_until_alarms(time_alarm)
 # Does not return, so we never get here.
