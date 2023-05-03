@@ -15,9 +15,9 @@ import microcontroller
 import watchdog
 import time
 
-w = microcontroller.watchdog
-w.timeout = 60
-w.mode = watchdog.WatchDogMode.RESET
+#w = microcontroller.watchdog
+#w.timeout = 60
+#w.mode = watchdog.WatchDogMode.RESET
 
 # Reset the count if we haven't slept yet. This is used to cycle count on battery.
 if not alarm.wake_alarm:
@@ -40,7 +40,10 @@ bme680 = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x76)
 temperature_offset = -3.21
 bme680.sea_level_pressure = 1013.25
 sgp30.set_iaq_baseline(39644, 41725)
-sgp30.set_iaq_relative_humidity(celsius=bme680.temperature + temperature_offset, relative_humidity=bme680.relative_humidity)
+sgp30.set_iaq_relative_humidity(
+    celsius=bme680.temperature + temperature_offset,
+    relative_humidity=bme680.relative_humidity
+    )
 vsensor = LC709203F(i2c)
 
 print("Battery: %0.3f Volts / %0.1f %%" % (vsensor.cell_voltage, vsensor.cell_percent))
@@ -132,27 +135,28 @@ mqtt_client.on_message = message
 try:
     print("Attempting to connect to %s" % mqtt_client.broker)
     mqtt_client.connect()
+    time.sleep(3)
 except:
     print("!!!!! microcontroller resetting !!!!!")
-    microcontroller.reset()
+    #microcontroller.reset()
 try:
     print("Subscribing to %s" % mqtt_topic)
     mqtt_client.subscribe(mqtt_topic)
 except MQTT.MMQTTException:
-    microcontroller.reset()
+    print("!!!!! microcontroller resetting !!!!!")
+    #microcontroller.reset()
 
-t_end = time.monotonic() + 60 * 5
-while time.monotonic() < t_end:
-    w.feed()
-    time.sleep(5)
-    
+
+while True:
+    #w.feed()
+    time.sleep(15)
     try:
         aqdata = pm25.read()
     except RuntimeError:
         print("Cannot read PM2.5, trying again later...")
 
     sgp30.set_iaq_relative_humidity(
-    celsius=bme680.temperature + temperature_offset, 
+    celsius=bme680.temperature + temperature_offset,
     relative_humidity=bme680.relative_humidity
     )
     # each element in the list (i.e. "temperature") needs to correspond to msg.payload.temperature in NODE-RED)
@@ -177,27 +181,11 @@ while time.monotonic() < t_end:
         "battery_percentage": vsensor.cell_percent,
         "cycles": alarm.sleep_memory[5]
     })
-    
-    if time.monotonic() > t_end - (60 * 4):
-        # publishing to MQTT on raspberry pi
+    try:
         print("Publishing to %s" % mqtt_topic)
         mqtt_client.publish(mqtt_topic, aqmdata)
-    else:
-        print("Warming up sensors...")
-    
+    except:
+        print("Could not publish to broker, trying again later...")
+        #microcontroller.reset()
 
-# disconnect before sleep
-print("Disconnecting from %s" % mqtt_client.broker)
-mqtt_client.disconnect()
 
-print("Going to sleep")
-
-# turning off I2C power before sleep to turn off sensors and save power
-i2c_power = digitalio.DigitalInOut(board.I2C_POWER)
-i2c_power.switch_to_input()
-
-# Create a an alarm that will trigger 5 Minutes from now.
-time_alarm = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + (60 * 2))
-# Exit the program, and then deep sleep until the alarm wakes us.
-alarm.exit_and_deep_sleep_until_alarms(time_alarm)
-# Does not return, so we never get here.
